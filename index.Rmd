@@ -1,0 +1,144 @@
+---
+title: "Practical Machine Learning Project"
+author: "MonikaZ"
+date: "19 February 2017"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Summary
+
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it.  
+  
+The goal of this project is to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants to predict the manner in which they perform the excercise. Predicted outcome will be classified as one of the following classes:   
+Class A: correct - exactly according to the specification,  
+Class B: throwing the elbows to the front,  
+Class C: lifting the dumbbell only halfway,  
+Class D: lowering the dumbbell only halfway and  
+Class E: throwing the hips to the front
+
+The data for this project is based on the following source: http://groupware.les.inf.puc-rio.br/har.
+
+
+## Data processing
+
+First training and testing datasets, as well as required packages were loaded.
+
+
+```{r, message=FALSE,warning=FALSE}
+library(caret)
+library(rpart)
+library(randomForest)
+```
+
+```{r}
+pml_training <- read.csv ("pml-training.csv", header=TRUE)
+pml_testing <- read.csv ("pml-testing.csv", header=TRUE)
+
+```
+
+Exploratory analysis of data using **str()** function showed that many of variables include **"#DIV/0!"** or **"blank"** records. To handle the problem, they were treated as null values:
+```{r}
+pml_training[pml_training == '#DIV/0!'] <- NA
+pml_training[pml_training == ''] <- NA
+pml_testing[pml_testing == '#DIV/0!'] <- NA
+pml_testing[pml_testing == ''] <- NA
+
+```
+
+## Predictor selection
+
+First step of predictors selection included identification and exclusion   from the dataset variables containing NULL values.
+
+```{r pressure, echo=FALSE}
+na_cols <- names(which(colSums(is.na(pml_training))>0))
+pml_training_nona <- pml_training[ , -which(names(pml_training) %in% na_cols)]
+
+```
+
+Then, zero covariates were investigated. As they have very low variability, they are not good predictors and should be excluded from the model.  
+The only variable excluded based on this condition was "new_window".
+
+```{r}
+nsv <-nearZeroVar(pml_training_nona,saveMetrics = TRUE)
+table(nsv$nzv)
+subset(nsv, nsv$nzv==TRUE)
+pml_training_nsv <- pml_training_nona[,-which(names(pml_training_nona)=="new_window")]
+
+```
+
+Next, check for correlated predictors was carried out. Predictors with correlation exceeding 0.8 were then excluded (please see list of correlated_predictors below).
+
+```{r}
+M <- abs(cor(pml_training_nsv[,-c(2,5,59)]))
+diag(M) <- 0
+M[upper.tri(M)] <- 0
+which(M>0.8, arr.ind = T)
+```
+
+```{r}
+M2 <- as.data.frame(M)
+correlated_predictors <- names(M2[,c(7,8,12,13,14,15,23,28,37,38,40,49,50)])
+correlated_predictors
+pml_training_nocorr <- pml_training_nsv[ , -which(names(pml_training_nsv) %in% correlated_predictors)]
+```
+
+Finally, column "x" capturing row order was excluded as not contributing to the model.
+
+```{r}
+pml_training_nocorr <- pml_training_nocorr[,-1]
+```
+
+Final number of predictor variables included in the model was 44.
+
+## Model fitting and Cross validation
+
+For reproducibility purpose seed 33335 was set.  
+Three types of models were investigated:  
+* classification tree  
+* Random forest  
+* Boosted tree  
+  
+5-fold cross validation was used to estimate accuracy of every model. 
+
+
+```{r, cache=TRUE}
+set.seed(33335)
+
+mod_rpart <- train(classe~.,method="rpart",data=pml_training_nocorr,trControl = trainControl(method="cv", number=5))
+```
+```{r, cache=TRUE}
+mod_rf <- train(classe~.,method="rf",data=pml_training_nocorr,trControl = trainControl(method="cv", number=5))
+```
+```{r, results="hide", cache=TRUE }
+mod_gbm <- train(classe~.,method="gbm",data=pml_training_nocorr,trControl = trainControl(method="cv", number=5))
+```
+
+Model validation showed that:  
+1. accuracy for Classification Tree model is: 0.494  
+2. accuracy for random forest model is: 1.000  
+3. accuracy for GBM model is: 0.997 (please see results below)  
+  
+Thus, Random Forest model was chosen to predict output for "classe" variable on testing dataset. 
+
+```{r}
+mod_rpart
+mod_rf
+mod_gbm
+```
+
+Comparing predictions with results of Project Quiz, out of sample error rate is 0.95. 
+
+```{r}
+#dataset<- names(pml_training_nocorr)
+testing <- pml_testing[ , names(pml_testing) %in% names(pml_training_nocorr)]
+pred_rf <- predict(mod_rf,newdata=testing)
+pred_rf
+```
+
+```{r}
+
+```
